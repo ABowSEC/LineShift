@@ -8,14 +8,23 @@ cursor = conn.cursor()
 MLB_URL = "https://sportsbook.draftkings.com/leagues/baseball/mlb"
 PROVIDER = "DraftKings-MLB-Web"
 
-def insert_mlb_odds(home_team, away_team, start_time, total, moneyline_home, moneyline_away):
+# Ensure pitcher columns exist in games table
+cursor.execute("""
+    ALTER TABLE games ADD COLUMN away_pitcher TEXT
+""")
+cursor.execute("""
+    ALTER TABLE games ADD COLUMN home_pitcher TEXT
+""")
+
+
+def insert_mlb_odds(home_team, away_team, start_time, total, moneyline_home, moneyline_away, away_pitcher, home_pitcher):
     game_id = f"{away_team}@{home_team} {start_time}"
 
     # Insert game entry if it doesn't exist
     cursor.execute('''
-        INSERT OR IGNORE INTO games (game_id, start_time, home_team, away_team)
-        VALUES (?, ?, ?, ?)
-    ''', (game_id, start_time, home_team, away_team))
+        INSERT OR IGNORE INTO games (game_id, start_time, home_team, away_team, away_pitcher, home_pitcher)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (game_id, start_time, home_team, away_team, away_pitcher, home_pitcher))
 
     # Insert odds entry
     cursor.execute('''
@@ -24,14 +33,15 @@ def insert_mlb_odds(home_team, away_team, start_time, total, moneyline_home, mon
     ''', (
         game_id,
         PROVIDER,
-        None,  # N
+        None,  # No spread for now
         total,
         moneyline_home,
         moneyline_away,
-        datetime.utcnow().isoformat()
+        datetime.utcnow().strftime("%Y-%m-%d")
     ))
 
     print(f" Stored MLB odds for {away_team} @ {home_team}")
+
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=False)
@@ -68,13 +78,21 @@ with sync_playwright() as p:
             start_elem = away_row.query_selector(".event-cell__start-time")
             start_time = start_elem.inner_text().strip() if start_elem else "TBD"
 
+            # Pitchers
+            away_pitcher_elem = away_row.query_selector(".event-cell__pitcher")
+            home_pitcher_elem = home_row.query_selector(".event-cell__pitcher")
+            away_pitcher = away_pitcher_elem.inner_text().strip() if away_pitcher_elem else None
+            home_pitcher = home_pitcher_elem.inner_text().strip() if home_pitcher_elem else None
+
             insert_mlb_odds(
                 home_team=home_team,
                 away_team=away_team,
                 start_time=start_time,
                 total=total,
                 moneyline_home=moneyline_home,
-                moneyline_away=moneyline_away
+                moneyline_away=moneyline_away,
+                away_pitcher=away_pitcher,
+                home_pitcher=home_pitcher
             )
         except Exception as e:
             print(" Error scraping MLB game row:", e)
