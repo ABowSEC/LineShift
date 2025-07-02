@@ -59,7 +59,11 @@ if team_filter:
             df["away_team"].str.contains(team_filter, case=False)]
 
 # Clean timestamp
-df["last_updated"] = pd.to_datetime(df["last_updated"], format="mixed", errors="coerce").dt.strftime("%Y-%m-%d")
+df["last_updated"] = pd.to_datetime(
+    df["last_updated"], 
+    errors="coerce"
+)
+df["last_updated"] = df["last_updated"].dt.strftime("%Y-%m-%d")
 
 # Ensure string type for Arrow serialization
 for col in ["total", "moneyline_home", "moneyline_away"]:
@@ -83,7 +87,7 @@ st.dataframe(df, use_container_width=True)
 st.markdown("Refresh the app to update odds.")
 
 # --------------------------------------------
-# ✅ Updated: MLB Player Stats Viewer
+# Updated: MLB Player Stats Viewer
 # --------------------------------------------
 if sport == "MLB":
     st.subheader("MLB Player Stats (FanGraphs)")

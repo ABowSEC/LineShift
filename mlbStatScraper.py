@@ -4,7 +4,6 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
 DB_NAME = "mlb_stats.db"
-
 FANGRAPHS_URL = (
     "https://www.fangraphs.com/leaders/major-league?pos=all&stats=bat&lg=all&type=8"
     "&season=2024&month=0&season1=2024&ind=0&team=0&rost=0&age=0&filter=&players=0"
@@ -15,44 +14,11 @@ COLUMNS = [
     "runs", "rbi", "stolen_bases", "walk_rate", "strikeout_rate", "iso", "babip",
     "batting_avg", "obp", "slg", "woba", "xwoba", "wrc_plus", "bsr", "off", "def", "war", "last_updated"
 ]
-
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("DROP TABLE IF EXISTS player_stats")
-    c.execute(f"""
-        CREATE TABLE IF NOT EXISTS player_stats (
-            player_name TEXT,
-            team TEXT,
-            games_played INTEGER,
-            plate_appearances INTEGER,
-            home_runs INTEGER,
-            runs INTEGER,
-            rbi INTEGER,
-            stolen_bases INTEGER,
-            walk_rate REAL,
-            strikeout_rate REAL,
-            iso REAL,
-            babip REAL,
-            batting_avg REAL,
-            obp REAL,
-            slg REAL,
-            woba REAL,
-            xwoba REAL,
-            wrc_plus INTEGER,
-            bsr REAL,
-            off REAL,
-            def REAL,
-            war REAL,
-            last_updated TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+#Init DB in migrations now
 
 def parse_fangraphs_table(html):
     soup = BeautifulSoup(html, 'html.parser')
-    table = soup.select_one("table")
+    table = soup.select_one("div.leaders-major_leaders-major__table__hcmbm table")
     if not table:
         print("❌ Stats table not found.")
         return []
@@ -60,7 +26,7 @@ def parse_fangraphs_table(html):
     data = []
     for row in table.select("tbody tr"):
         cells = row.find_all("td")
-        if len(cells) < 27:
+        if len(cells) < 23:
             continue
 
         def parse_percent(text):
@@ -108,22 +74,17 @@ def parse_fangraphs_table(html):
                 datetime.now(timezone.utc).isoformat()    # last_updated
             ))
         except Exception as e:
-            print("⚠️ Failed to parse row:", e)
+            print("Failed to parse row:", e)
 
     return data
 
 def fetch_and_parse_table():
-    print("🔄 Fetching FanGraphs table...")
-
+    print("Fetching FanGraphs table...")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, slow_mo=50)
+        browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(FANGRAPHS_URL, timeout=90000)
-
-        # ✅ Wait for table inside correct wrapper
         page.wait_for_selector("div.leaders-major_leaders-major__table__hcmbm table", timeout=60000)
-
-        # ✅ Extract just the scoped container's HTML
         html = page.inner_html("div.leaders-major_leaders-major__table__hcmbm")
         browser.close()
 
@@ -131,24 +92,44 @@ def fetch_and_parse_table():
 
 def store_stats(stats):
     if not stats:
-        print("🚫 No data to store.")
+        print("No data to store.")
         return
 
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-
     for row in stats:
         c.execute(f"""
             INSERT INTO player_stats ({', '.join(COLUMNS)})
             VALUES ({', '.join(['?'] * len(COLUMNS))})
+            ON CONFLICT(player_name, team) DO UPDATE SET
+                games_played      = excluded.games_played,
+                plate_appearances = excluded.plate_appearances,
+                home_runs         = excluded.home_runs,
+                runs              = excluded.runs,
+                rbi               = excluded.rbi,
+                stolen_bases      = excluded.stolen_bases,
+                walk_rate         = excluded.walk_rate,
+                strikeout_rate    = excluded.strikeout_rate,
+                iso               = excluded.iso,
+                babip             = excluded.babip,
+                batting_avg       = excluded.batting_avg,
+                obp               = excluded.obp,
+                slg               = excluded.slg,
+                woba              = excluded.woba,
+                xwoba             = excluded.xwoba,
+                wrc_plus          = excluded.wrc_plus,
+                bsr               = excluded.bsr,
+                off               = excluded.off,
+                def               = excluded.def,
+                war               = excluded.war,
+                last_updated      = excluded.last_updated;
         """, row)
 
     conn.commit()
     conn.close()
-    print(f"✅ Stored {len(stats)} player records.")
+    print(f"Stored {len(stats)} player records.")
 
 def main():
-    init_db()
     stats = fetch_and_parse_table()
     store_stats(stats)
 
