@@ -12,6 +12,12 @@ PROVIDER   = "DraftKings-Web"
 
 # Database helpers
 
+def nickname(full_name: str) -> str:
+    """Return the team's nickname (last word of the full name)."""
+    return full_name.strip().split()[-1]
+
+
+
 def insert_game(cursor, game_id, start_time, home_team, away_team):
     """
     Insert the game row if it doesn't already exist.
@@ -88,14 +94,19 @@ def scrape_nfl_odds():
                 ml_home = home_ml[-1].inner_text().strip() if home_ml else None
 
                 # Start time
-                start_elem = away.query_selector(".event-cell__start-time")
-                start_time = start_elem.inner_text().strip() if start_elem else "TBD"
+                raw_time_elem = away.query_selector(".event-cell__start-time")
+                raw_time = raw_time_elem.inner_text().strip() if raw_time_elem else "TBD"
+                time_str = raw_time.replace(" ", "").upper()    
+     
 
-                game_id = f"{away_team}@{home_team} {start_time}"
+                home_nick = nickname(home_team)
+                away_nick = nickname(away_team)        
+
+                game_id = f"{away_nick}@{home_nick} {time_str}"
 
                 games.append({
                     "game_id":     game_id,
-                    "start_time":  start_time,
+                    "start_time":  time_str,
                     "home_team":   home_team,
                     "away_team":   away_team,
                     "spread":      spread,
@@ -104,7 +115,7 @@ def scrape_nfl_odds():
                     "ml_away":     ml_away,
                 })
 
-                print(f"Parsed: {away_team} @ {home_team} ({start_time})")
+                print(f"Parsed: {away_team} @ {home_team} ({time_str})")
 
             except Exception as e:
                 print(f"Skipped row {i}: {e}")

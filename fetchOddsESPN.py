@@ -2,6 +2,8 @@
 import sqlite3
 import requests
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo           
+
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -28,6 +30,11 @@ def fetch_scoreboard_json():
 
 
 # Database helper functions
+def nickname(full_name: str) -> str:
+    return full_name.strip().split()[-1]
+
+
+
 def insert_game(cursor, game_id, start_time, game_date, home_team, away_team):
     """
     Insert a game if it doesn't already exist.
@@ -69,12 +76,25 @@ def main():
             # Basic game info
             game_id    = event["id"]
             iso_ts = event["date"]  # ISO string
-            dt = datetime.fromisoformat(iso_ts.replace("Z","+00:00"))
-            game_date= dt.date().isoformat()
+            dt_utc = datetime.fromisoformat(iso_ts.replace("Z","+00:00"))
+            dt_local = dt_utc.astimezone(ZoneInfo("America/Denver"))#SET TO USERS TIME ZONE
+
+            time_str = dt_local.strftime("%I:%M%p").lstrip("0") #match to DK to pair games easier across
+            #LStrip Above stops windows error for 06:00 --> 6:00
+            game_date= dt_local.date().isoformat()
+
             comp  = event.get("competitions", [])[0]
             teams = comp.get("competitors", [])
             home  = next(t for t in teams if t["homeAway"] == "home")
             away  = next(t for t in teams if t["homeAway"] == "away")
+
+
+            home_nick=nickname(home["team"]["name"])
+            away_nick= nickname(away["team"]["name"])
+
+
+            game_id = f"{away_nick}@{home_nick} {time_str}"
+
 
             insert_game(
                 cur,
@@ -85,7 +105,7 @@ def main():
                 away["team"]["name"]
             )
 
-            # Odds (if present)
+            # Odds 
             odds_list = comp.get("odds", [])
             if odds_list:
                 oList = odds_list[0]
