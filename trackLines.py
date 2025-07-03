@@ -51,6 +51,6 @@ for game_id in gameIDs:
         ]
         for label, new_val, old_val in fields:
             if changed(new_val, old_val):
-                print(f"  🔄 {label}: {old_val} → {new_val}")
+                print(f" Switch: {label}: {old_val} → {new_val}")
 
 file.close()

@@ -1,93 +1,132 @@
+#!/usr/bin/env python3
 import sqlite3
-from datetime import datetime
-from playwright.sync_api import sync_playwright
+from datetime import datetime, timezone
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-conn = sqlite3.connect("nfl_odds.db")
-cursor = conn.cursor()
+# Config
 
-NFL_URL = "https://sportsbook.draftkings.com/leagues/football/nfl"
-PROVIDER = "DraftKings-Web"
+DB_NAME    = "nfl_odds.db"
+NFL_URL    = "https://sportsbook.draftkings.com/leagues/football/nfl"
+PROVIDER   = "DraftKings-Web"
 
-def insert_dk_odds(home_team, away_team, start_time, spread, total, moneyline_home, moneyline_away):
-    game_id = f"{away_team}@{home_team} {start_time}"
 
-    # Insert game entry if it doesn't exist
-    cursor.execute('''
-        INSERT OR IGNORE INTO games (game_id, start_time, home_team, away_team)
+# Database helpers
+
+def insert_game(cursor, game_id, start_time, home_team, away_team):
+    """
+    Insert the game row if it doesn't already exist.
+    """
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO games
+            (game_id, start_time, home_team, away_team)
         VALUES (?, ?, ?, ?)
-    ''', (game_id, start_time, home_team, away_team))
+        """,
+        (game_id, start_time, home_team, away_team),
+    )
 
-    # Insert odds entry
-    cursor.execute('''
-        INSERT INTO odds (game_id, provider, spread_details, over_under, moneyline_home, moneyline_away, updated_at)
+def insert_odds(cursor, game_id, spread, total, ml_home, ml_away):
+    """
+    Insert a new odds row with UTC timestamp (no microseconds).
+    """
+    ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    cursor.execute(
+        """
+        INSERT INTO odds
+            (game_id, provider, spread_details, over_under, moneyline_home, moneyline_away, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        game_id,
-        PROVIDER,
-        spread,
-        total,
-        moneyline_home,
-        moneyline_away,
-        datetime.utcnow().isoformat()
-    ))
+        """,
+        (game_id, PROVIDER, spread, total, ml_home, ml_away, ts),
+    )
 
-    print(f"✔️ Stored odds for {away_team} @ {home_team}")
+# Scraping logic
 
+def scrape_nfl_odds():
+    """
+    Headlessly scrape DraftKings NFL odds and return a list of dicts.
+    """
+    games = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page    = browser.new_page()
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    page = browser.new_page()
-    page.goto(NFL_URL, timeout=60000)
-    page.wait_for_selector("table.sportsbook-table", timeout=30000)
-
-    rows = page.query_selector_all("table.sportsbook-table tbody tr")
-    print("Found game rows:", len(rows))
-
-    for i in range(0, len(rows), 2):  # Two rows per game
         try:
-            away_row = rows[i]
-            home_row = rows[i + 1]
+            page.goto(NFL_URL, timeout=60000)
+            page.wait_for_selector("table.sportsbook-table tbody tr", timeout=30000)
+        except PlaywrightTimeoutError as e:
+            print(f"Failed to load page: {e}")
+            browser.close()
+            return games
 
-            # Teams
-            away_team = away_row.query_selector(".event-cell__name-text").inner_text().strip()
-            home_team = home_row.query_selector(".event-cell__name-text").inner_text().strip()
+        rows = page.query_selector_all("table.sportsbook-table tbody tr")
+        print(f"Found {len(rows)} rows (2 per game)")
 
-            # Spreads
-            spread_elems = [e.inner_text().strip() for e in away_row.query_selector_all('[data-testid="sportsbook-outcome-cell-line"]')]
-            spread = " | ".join(spread_elems) if spread_elems else None
-
-            # Total
+        # Process pairs: away_row, home_row
+        for i in range(0, len(rows), 2):
             try:
-                total_cell = away_row.query_selector_all("td")[1]
+                away = rows[i]
+                home = rows[i + 1]
+
+                # Teams
+                away_team = away.query_selector(".event-cell__name-text").inner_text().strip()
+                home_team = home.query_selector(".event-cell__name-text").inner_text().strip()
+
+                # Spread
+                spreads = [e.inner_text().strip()
+                           for e in away.query_selector_all('[data-testid="sportsbook-outcome-cell-line"]')]
+                spread = " | ".join(spreads) if spreads else None
+
+                # Total (O/U)
+                total_cell = away.query_selector_all("td")[1]
                 total_elem = total_cell.query_selector('[data-testid="sportsbook-outcome-cell-line"]')
                 total = total_elem.inner_text().strip() if total_elem else None
-            except:
-                total = None
 
-            # Moneylines
-            away_moneyline_elem = away_row.query_selector_all('[data-testid="sportsbook-odds"]')
-            home_moneyline_elem = home_row.query_selector_all('[data-testid="sportsbook-odds"]')
-            moneyline_away = away_moneyline_elem[-1].inner_text().strip() if away_moneyline_elem else None
-            moneyline_home = home_moneyline_elem[-1].inner_text().strip() if home_moneyline_elem else None
+                # Moneylines
+                away_ml = away.query_selector_all('[data-testid="sportsbook-odds"]')
+                home_ml = home.query_selector_all('[data-testid="sportsbook-odds"]')
+                ml_away = away_ml[-1].inner_text().strip() if away_ml else None
+                ml_home = home_ml[-1].inner_text().strip() if home_ml else None
 
-            # Start Time
-            start_elem = away_row.query_selector(".event-cell__start-time")
-            start_time = start_elem.inner_text().strip() if start_elem else "TBD"
+                # Start time
+                start_elem = away.query_selector(".event-cell__start-time")
+                start_time = start_elem.inner_text().strip() if start_elem else "TBD"
 
-            # Insert into DB
-            insert_dk_odds(
-                home_team=home_team,
-                away_team=away_team,
-                start_time=start_time,
-                spread=spread,
-                total=total,
-                moneyline_home=moneyline_home,
-                moneyline_away=moneyline_away
-            )
+                game_id = f"{away_team}@{home_team} {start_time}"
 
-        except Exception as e:
-            print("Error scraping game row:", e)
+                games.append({
+                    "game_id":     game_id,
+                    "start_time":  start_time,
+                    "home_team":   home_team,
+                    "away_team":   away_team,
+                    "spread":      spread,
+                    "total":       total,
+                    "ml_home":     ml_home,
+                    "ml_away":     ml_away,
+                })
 
-    conn.commit()
-    conn.close()
-    browser.close()
+                print(f"Parsed: {away_team} @ {home_team} ({start_time})")
+
+            except Exception as e:
+                print(f"Skipped row {i}: {e}")
+
+        browser.close()
+    return games
+
+# main
+def main():
+    data = scrape_nfl_odds()
+    if not data:
+        print("No games scraped; exiting.")
+        return
+
+    with sqlite3.connect(DB_NAME) as conn:
+        cur = conn.cursor()
+        for g in data:
+            insert_game(cur, g["game_id"], g["start_time"], g["home_team"], g["away_team"])
+            insert_odds(cur, g["game_id"], g["spread"], g["total"], g["ml_home"], g["ml_away"])
+        conn.commit()
+
+    print(f"Stored odds for {len(data)} games into `{DB_NAME}`")
+
+if __name__ == "__main__":
+    main()

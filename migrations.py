@@ -5,17 +5,18 @@ def migrate_nfl_odds_db():
     conn = sqlite3.connect("nfl_odds.db")
     c = conn.cursor()
 
-    # 1) Create games table
+    #  Create games table
     c.execute("""
     CREATE TABLE IF NOT EXISTS games (
         game_id       TEXT PRIMARY KEY,
         start_time    TEXT,
+        game_date     TEXT,
         home_team     TEXT,
         away_team     TEXT
     );
     """)
 
-    # 2) Create odds table
+    # Create odds table
     c.execute("""
     CREATE TABLE IF NOT EXISTS odds (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +43,7 @@ def migrate_mlb_odds_db():
     CREATE TABLE IF NOT EXISTS games (
         game_id       TEXT PRIMARY KEY,
         start_time    TEXT,
+        game_date     TEXT,
         home_team     TEXT,
         away_team     TEXT,
         away_pitcher  TEXT,
@@ -108,4 +110,4 @@ if __name__ == "__main__":
     migrate_nfl_odds_db()
     migrate_mlb_odds_db()
     migrate_mlb_stats_db()
-    print("Migrations applied to nfl_odds.db, mlb_odds.db, and mlb_stats.db")
+    print("All Migrations Complete")

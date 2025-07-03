@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import sqlite3
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
