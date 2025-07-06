@@ -1,12 +1,28 @@
-LineShift // Real-time odds monitoring and line shift detection.
+# LineShift - Sports Odds Dashboard
 
-Python Web Scraper that pulls Live and upcoming NFL game odds from ESPN public JSON feed and stores with SQLite Database
+Real-time sports betting data platform for MLB and NFL games.
 
+## Features
 
-1. Tracking weekly Game Schedules, Teams and Start Times 
-2. Storing betting data (spreads, moneylines, Over/Under)
-3. Support for historical odd analysis (Timestamps for each entry)
-4. Runs periodically (around 5mins planned) to detect odd changes
+- **MLB & NFL odds** from DraftKings and ESPN
+- **Official MLB schedule** and probable pitchers
+- **Player statistics** from Baseball Savant
+- **Interactive dashboard** with filtering options
+- **One-click refresh** to update all data
+
+## Data Sources
+
+- **MLB Schedule:** Official MLB Stats API
+- **MLB Odds:** DraftKings Sportsbook
+- **MLB Stats:** Baseball Savant
+- **NFL Odds:** DraftKings & ESPN
+
+## Usage
+
+- **Dashboard:** View at http://localhost:8501
+- **Refresh Data:** Click button in dashboard to run scrapers Live
+- **Filter:** Use sidebar to filter by sport, date, team
+```
 
 
 

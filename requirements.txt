@@ -7,6 +7,9 @@ beautifulsoup4==4.12.3
 
 # Scraping Tools
 playwright==1.44.0
+#manual install for windows at least it seems
+# cmd playwright install
+
 
 # HTML Parsing & Rendering
 lxml==5.2.1

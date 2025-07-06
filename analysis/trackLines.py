@@ -42,7 +42,7 @@ for game_id in gameIDs:
         changed(latest[2], previous[2]),  # ML home
         changed(latest[3], previous[3])   # ML away
     ]):
-        print(f"\n📊 Line Movement Detected for {away_team} @ {home_team}")
+        print(f"\nLine Movement Detected for {away_team} @ {home_team}")
         fields = [
             ("Spread", latest[0], previous[0]),
             ("Total (O/U)", latest[1], previous[1]),

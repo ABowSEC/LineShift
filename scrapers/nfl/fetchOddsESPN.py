@@ -8,7 +8,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # Config
-DB_NAME   = "nfl_odds.db"
+DB_NAME   = "data/nfl_odds.db"
 ESPN_URL  = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 PROVIDER  = "ESPN"
 

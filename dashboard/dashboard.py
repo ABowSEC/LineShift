@@ -11,7 +11,7 @@ def load_data(sport, team_filter=None, date_filter=None, date_option="All Games"
     """Load and process data with error handling"""
     try:
         if sport == "NFL":
-            db_file = "nfl_odds.db"
+            db_file = "data/nfl_odds.db"
             query = """
                 SELECT
                     g.game_date,
@@ -19,9 +19,15 @@ def load_data(sport, team_filter=None, date_filter=None, date_option="All Games"
                     g.home_team,
                     g.away_team,
                     o.spread_details AS spread,
-                    o.over_under     AS total,
-                    o.moneyline_home,
-                    o.moneyline_away,
+                    o.over_under AS total,
+                    CASE 
+                        WHEN CAST(REPLACE(o.moneyline_home, '-', '-') AS INTEGER) > 0 THEN '+' || o.moneyline_home 
+                        ELSE o.moneyline_home 
+                    END AS moneyline_home,
+                    CASE 
+                        WHEN CAST(REPLACE(o.moneyline_away, '-', '-') AS INTEGER) > 0 THEN '+' || o.moneyline_away 
+                        ELSE o.moneyline_away 
+                    END AS moneyline_away,
                     MAX(o.updated_at) AS last_updated
                 FROM games g
                 JOIN odds o ON g.game_id = o.game_id
@@ -29,10 +35,11 @@ def load_data(sport, team_filter=None, date_filter=None, date_option="All Games"
                 ORDER BY last_updated DESC
             """
         else:  # MLB
-            db_file = "mlb_odds.db"
+            db_file = "data/mlb_odds.db"
             query = """
                 SELECT
                     g.game_date,
+                    g.start_time,
                     g.home_team,
                     g.away_team,
                     g.home_pitcher,
@@ -73,8 +80,37 @@ def nickname(full_name: str) -> str:
 
 def process_dataframe(df, sport, team_filter=None, date_filter=None, date_option="All Games"):
     """Process and filter dataframe"""
-    # Convert dates
-    df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce").dt.date
+    # Convert dates // handle the DraftKings format like "THU SEP 4TH"
+    def parse_game_date(date_str):
+        if pd.isna(date_str) or not date_str:
+            return pd.NaT
+        
+        try:
+            parts = str(date_str).split()
+            if len(parts) >= 3:
+                month = parts[1]
+                day = parts[2]
+                month_map = {
+                    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+                }
+                if month in month_map:
+                    month_num = month_map[month]
+                    # Handle both "4TH" and "05"
+                    day_num = int(''.join(filter(str.isdigit, day)))
+                    # Use current year for MLB, or your NFL logic for NFL
+                    year = datetime.now().year
+                    return pd.Timestamp(year, month_num, day_num)
+            
+            # Fallback to regular datetime parsing
+            return pd.to_datetime(date_str, errors="coerce")
+        except:
+            return pd.NaT
+    
+    df["game_date"] = df["game_date"].apply(parse_game_date).dt.date
+    
+    # Format dates for display
+    df["game_date"] = df["game_date"].apply(lambda x: x.strftime("%b %d") if pd.notna(x) else "TBD")
     
     # Filter by date based on option
     if date_option == "Today":
@@ -101,15 +137,7 @@ def process_dataframe(df, sport, team_filter=None, date_filter=None, date_option
     df["away_nick"] = df["away_team"].apply(nickname)
     df["home_nick"] = df["home_team"].apply(nickname)
     
-    # Process timestamps
-    if "start_time" in df.columns:
-        df["start_time"] = pd.to_datetime(df["start_time"], utc=True, errors="coerce")
-        df["time_str"] = (
-            df["start_time"]
-              .dt.tz_convert("America/Denver")
-              .dt.strftime("%I:%M%p")
-              .str.lstrip("0")
-        )
+    # use the date for filtering purposes
     
     df["last_updated"] = (
         pd.to_datetime(df["last_updated"], errors="coerce")
@@ -135,7 +163,7 @@ def format_display_data(df, sport):
     if sport == "MLB":
         df["Matchup"] = df.apply(
             lambda r: f"{r['away_team']} ({r.get('away_pitcher', 'TBD') or 'TBD'}) "
-                      f"@ {r['home_team']} ({r.get('home_pitcher', 'TBD') or 'TBD'})",
+                      f"@ {r['home_team']} ({r.get('home_pitcher', 'TBD') or 'TBD'}) - {r.get('start_time', 'TBD')}",
             axis=1
         )
         display_df = df[
@@ -143,7 +171,7 @@ def format_display_data(df, sport):
         ]
     else:  # NFL
         df["Matchup"] = df.apply(
-            lambda r: f"{r['away_nick']} @ {r['home_nick']} {r.get('time_str', '')}",
+            lambda r: f"{r['away_nick']} @ {r['home_nick']}",
             axis=1
         )
         display_df = df[
@@ -158,12 +186,13 @@ def format_display_data(df, sport):
 def load_mlb_stats(player_filter=None):
     """Load MLB player stats with error handling"""
     try:
-        with sqlite3.connect("mlb_stats.db") as conn:
+        with sqlite3.connect("data/mlb_stats.db") as conn:
             stats_df = pd.read_sql_query("""
-                SELECT player_name, team, games_played, plate_appearances,
-                       home_runs, runs, rbi, stolen_bases, walk_rate,
-                       strikeout_rate, iso, babip, batting_avg, obp, slg,
-                       woba, xwoba, wrc_plus, bsr, off, def, war, last_updated
+                SELECT player_name, year, at_bats, plate_appearances, hits, singles, doubles,
+                       home_runs, strikeouts, walks, strikeout_rate, walk_rate, batting_avg,
+                       slg, obp, iso, rbi, stolen_bases, games_played, woba, xwoba,
+                       la_sweet_spot_pct, barrel_pct, hard_hit_pct, ev50, adjusted_ev, 
+                       whiff_pct, swing_pct, last_updated
                 FROM player_stats
                 ORDER BY last_updated DESC
             """, conn)
@@ -176,11 +205,10 @@ def load_mlb_stats(player_filter=None):
               .dt.strftime("%Y-%m-%d")
         )
         
-        # Filter by player or team
+        # Filter by player name only 
         if player_filter:
             mask = (
-                stats_df["player_name"].str.contains(player_filter, case=False, na=False) |
-                stats_df["team"].str.contains(player_filter, case=False, na=False)
+                stats_df["player_name"].str.contains(player_filter, case=False, na=False)
             )
             stats_df = stats_df[mask]
         
@@ -229,6 +257,40 @@ def main():
         
         # Refresh button
         if st.button("Refresh Data"):
+            with st.spinner("Running scrapers to get fresh data..."):
+                import subprocess
+                import sys
+                import os
+                
+                try:
+                    # Run the scrapers
+                    result = subprocess.run(
+                        [sys.executable, "run_scrapers.py"],
+                        capture_output=True,
+                        text=True,
+                        cwd=os.getcwd(),
+                        timeout=300  # 5 minute timeout
+                    )
+                    
+                    if result.returncode == 0:
+                        st.success("Scrapers completed successfully!")
+                        if result.stdout:
+                            st.text("Scraper output:")
+                            st.code(result.stdout, language="bash")
+                    else:
+                        st.error("Some scrapers failed!")
+                        if result.stderr:
+                            st.error(f"Error: {result.stderr}")
+                        if result.stdout:
+                            st.text("Partial output:")
+                            st.code(result.stdout, language="bash")
+                            
+                except subprocess.TimeoutExpired:
+                    st.error("Scrapers timed out after 5 minutes")
+                except Exception as e:
+                    st.error(f"Error running scrapers: {e}")
+            
+            # Clear cache and reload
             st.cache_data.clear()
             st.rerun()
     
@@ -259,9 +321,11 @@ def main():
         with col1:
             st.metric("Total Games", len(display_df))
         with col2:
-            if not display_df.empty:
+            if not display_df.empty and len(display_df) > 0:
                 last_update = display_df["Last Updated"].iloc[0]
                 st.metric("Last Updated", last_update)
+            else:
+                st.metric("Last Updated", "N/A")
         with col3:
             st.metric("Sport", sport)
     else:
@@ -269,11 +333,11 @@ def main():
     
     # MLB Stats section
     if sport == "MLB":
-        st.subheader("MLB Player Stats (FanGraphs)")
+        st.subheader("MLB Player Stats (Baseball Savant)")
         
         player_filter = st.text_input(
-            "Filter by Player or Team", 
-            placeholder="Enter player name or team"
+            "Filter by Player", 
+            placeholder="Enter player name"
         )
         
         with st.spinner("Loading player stats..."):
